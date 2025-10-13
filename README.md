@@ -39,6 +39,12 @@ S3. aving: It writes all rules that follow N to the output file.
 
 3. Phase 2 uses the Mode 4 (Inverse) rules to perform a slower, more exhaustive attack on the remaining hashes, ensuring no time is wasted re-testing the rules used in Phase 1.
 
+**PARETO - SUGGESTED CUTOFF LIMITS** is performing a Cumulative Value Analysis on your sorted rule data. This analysis identifies the point where a small fraction of the rules accounts for a large percentage of the total rule occurrences (i.e., potential cracked hashes).
+
+1. Suggest Cutoff: The number of rules required to reach the 90% or 95% threshold is provided as the suggested cutoff limit. These limits represent the smallest set of rules that provide the maximum cracking value, aligning with the 80/20 Pareto principle.
+
+2. The final suggested number (the "MAX_COUNT") is what you would use in Mode 2 to build your efficient, first-phase attack file.
+
 *Value for the User*
 
 This tool transforms large, chaotic rule sets into compact, highly effective, and optimized files that are faster to load and more efficient in attacks on large, modern GPU-based platforms. This capability enables the creation of professional, custom rules that surpass publicly available sets in terms of performance and precision.
