@@ -29,7 +29,7 @@ Mode 4 executes the opposite of standard filtering:
 
 2. Skipping: The script discards the first N most valuable rules (those with the highest total occurrence count).
 
-S3. aving: It writes all rules that follow N to the output file.
+3. Saving: It writes all rules that follow N to the output file.
 
 *Purpose*
 
