@@ -531,7 +531,7 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
         if removed_count > 0:
             print(f"[RESULT] {removed_count:,} unique rules were removed from the initial set of {initial_unique_count:,}.")
     
-    # --- 5. Saving the data to the new file ---
+    # --- 5. Saving the data to the new file (MODIFIED SECTION) ---
     final_write_count = len(final_data_to_write)
     first_basename = os.path.basename(os.path.splitext(input_files[0])[0])
     
@@ -549,9 +549,14 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
     elif mode_choice_1 == '1':
         filter_str = f"MIN_{min_count_threshold}"
     else:
-        filter_str = f"FULL_CONSOLIDATED"
+        # Changed the default naming suffix to 'slimmed'
+        filter_str = "slimmed"
 
-    output_filepath = f"{first_basename}_CONSOLIDATED_{filter_str}.rule"
+    # Conditional file path construction
+    if filter_str == "slimmed":
+        output_filepath = f"{first_basename}_{filter_str}.rule"
+    else:
+        output_filepath = f"{first_basename}_CONSOLIDATED_{filter_str}.rule"
     
     input_dir = os.path.dirname(input_files[0])
     if input_dir:
