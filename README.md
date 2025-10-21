@@ -50,4 +50,5 @@ Mode 4 executes the opposite of standard filtering:
 This tool transforms large, chaotic rule sets into compact, highly effective, and optimized files that are faster to load and more efficient in attacks on large, modern GPU-based platforms. This capability enables the creation of professional, custom rules that surpass publicly available sets in terms of performance and precision.
 
 **Credits**
+
 https://github.com/mkb2091/PyRuleEngine
