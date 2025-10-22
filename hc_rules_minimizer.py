@@ -7,6 +7,7 @@ Features:
 - Optional disk usage for initial consolidation of huge files (--use-disk).
 - Statistical Cutoff (Mode 2) and Inverse Mode (Mode 4) for dual-phase attacks.
 - Pareto Analysis (Cumulative Value) for suggesting cutoff limits.
+- NEW: Levenshtein Distance Filtering for Semantic Redundancy Removal, optimized with NumPy (optional).
 '''
 import sys
 import os
@@ -16,7 +17,16 @@ from typing import List, Tuple, Dict, Callable
 import argparse
 import tempfile
 import multiprocessing
-from tqdm import tqdm 
+from tqdm import tqdm
+
+# --- NUMPY IMPLEMENTATION CHECK (NEW) ---
+NUMPY_AVAILABLE = False
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+    print("[INFO] NumPy found. Using optimized Levenshtein distance calculation.")
+except ImportError:
+    print("[WARNING] NumPy not found. Falling back to slower pure Python Levenshtein distance calculation.")
 
 # ==============================================================================
 # A. RULEENGINE SIMULATOR LOGIC (Hashcat Functions)
@@ -27,7 +37,7 @@ def i36(string):
     '''Shorter way of converting base 36 string to integer'''
     return int(string, 36)
 
-# --- FUNCTS DICTIONARY ---
+# --- FUNCTS DICTIONARY --- (Content remains unchanged)
 FUNCTS: Dict[str, Callable] = {}
 FUNCTS[':'] = lambda x, i: x
 FUNCTS['l'] = lambda x, i: x.lower()
@@ -147,7 +157,6 @@ __ruleregex__ = rule_regex_gen()
 class RuleEngine(object):
     ''' Simplified Rule Engine for functional simulation '''
     def __init__(self, rules: List[str]):
-        # Pre-parse rules using regex for faster application
         self.rules = tuple(map(__ruleregex__.findall, rules))
 
     def apply(self, string: str) -> str:
@@ -158,7 +167,6 @@ class RuleEngine(object):
             
             for function in rule_functions:
                 try:
-                    # Apply function based on the first character (the operator)
                     word = FUNCTS[function[0]](word, function[1:])
                 except Exception:
                     pass
@@ -169,13 +177,94 @@ class RuleEngine(object):
 # B. CORE LOGIC
 # ==============================================================================
 
-# *** FIXED AND EXPANDED TEST VECTOR ***
+# --- LEVENSHTEIN LOGIC (MODIFIED WITH NUMPY) ---
+
+if NUMPY_AVAILABLE:
+    def levenshtein_distance(s1: str, s2: str) -> int:
+        """
+        Calculates the Levenshtein distance between two strings using NumPy for matrix operations.
+        """
+        if len(s1) > len(s2):
+            s1, s2 = s2, s1
+
+        rows = len(s1) + 1
+        cols = len(s2) + 1
+        
+        D = np.zeros((rows, cols), dtype=int)
+        D[:, 0] = np.arange(rows)
+        D[0, :] = np.arange(cols)
+
+        for j in range(1, cols):
+            for i in range(1, rows):
+                cost = 0 if s1[i-1] == s2[j-1] else 1
+                
+                D[i, j] = min(
+                    D[i-1, j] + 1,        # Deletion
+                    D[i, j-1] + 1,        # Insertion
+                    D[i-1, j-1] + cost    # Substitution
+                )
+                
+        return D[rows - 1, cols - 1]
+
+else: # Pure Python Fallback
+    def levenshtein_distance(s1: str, s2: str) -> int:
+        """
+        Calculates the Levenshtein distance using pure Python (slow fallback).
+        """
+        if len(s1) > len(s2):
+            s1, s2 = s2, s1
+
+        distances = list(range(len(s1) + 1))
+        
+        for i2, c2 in enumerate(s2):
+            new_distances = [i2 + 1]
+            for i1, c1 in enumerate(s1):
+                cost = 0 if c1 == c2 else 1
+                
+                new_distances.append(min((distances[i1 + 1] + 1, 
+                                         new_distances[-1] + 1, 
+                                         distances[i1] + cost)))
+                                         
+            distances = new_distances
+        return distances[-1]
+
+
+def apply_levenshtein_filter(rules_data: List[Tuple[str, int]], max_dist: int) -> List[Tuple[str, int]]:
+    """
+    Filters a list of rules (rule, count) based on Levenshtein distance.
+    """
+    if max_dist <= 0:
+        return rules_data 
+    
+    print(f"\n[FILTER] Applying Levenshtein Filter (Max Distance: {max_dist}) to {len(rules_data):,} rules...")
+    
+    final_rules: List[Tuple[str, int]] = []
+    final_rule_strings: List[str] = []
+    
+    total_rejected = 0
+
+    for rule, count in tqdm(rules_data, desc="Levenshtein filtering"):
+        is_redundant = False
+        
+        for existing_rule in final_rule_strings:
+            if levenshtein_distance(rule, existing_rule) <= max_dist:
+                is_redundant = True
+                total_rejected += 1
+                break
+        
+        if not is_redundant:
+            final_rules.append((rule, count))
+            final_rule_strings.append(rule)
+            
+    print(f"[FILTER] Rules rejected by Levenshtein filter: {total_rejected:,}. Final rules: {len(final_rules):,}.")
+    return final_rules
+
+# --- Rule Engine Worker and Signature Generation (Unchanged) ---
 TEST_VECTOR = [
     "Password", "123456", "ADMIN", "1aB", "QWERTY", 
     "longword", "spec!", "!spec", "a", "b", "c", "0123", 
     "xYz!", "TEST", "tEST", "test", "0", "1", "$^", "lorem", "ipsum"
 ]
-# ***********************************
 
 def worker_generate_signature(rule_data: Tuple[str, int]) -> Tuple[str, Tuple[str, int]]:
     """Worker function for multiprocessing pool."""
@@ -188,7 +277,6 @@ def worker_generate_signature(rule_data: Tuple[str, int]) -> Tuple[str, Tuple[st
         signature_parts.append(result)
 
     signature = '|'.join(signature_parts)
-    # Return the signature and the original rule data
     return signature, (rule_text, count)
 
 
@@ -202,10 +290,7 @@ def generate_functional_signatures(unique_rules_with_counts: List[Tuple[str, int
     num_processes = multiprocessing.cpu_count()
     print(f"[MP] Using {num_processes} processes for functional simulation.")
 
-    # Use multiprocessing Pool to parallelize the rule simulation
     with multiprocessing.Pool(processes=num_processes) as pool:
-        
-        # Wrap the pool.imap iterator with tqdm for the progress bar
         results = list(tqdm(
             pool.imap(worker_generate_signature, unique_rules_with_counts),
             total=len(unique_rules_with_counts),
@@ -213,7 +298,6 @@ def generate_functional_signatures(unique_rules_with_counts: List[Tuple[str, int
             unit=" rules"
         ))
     
-    # Consolidate results back into a single signature map
     for signature, rule_data in results:
         if signature not in signature_map:
             signature_map[signature] = []
@@ -222,26 +306,20 @@ def generate_functional_signatures(unique_rules_with_counts: List[Tuple[str, int
     final_best_rules_list: List[Tuple[str, int]] = []
     
     for signature, rules_list in signature_map.items():
-        # Sort by count and pick the best (most frequent) rule for the signature
         rules_list.sort(key=lambda x: x[1], reverse=True)
-        
         best_rule_text, _ = rules_list[0]
-        # Sum the counts of all textually unique rules that map to this functional signature
         total_count = sum(count for _, count in rules_list)
-        
         final_best_rules_list.append((best_rule_text, total_count))
         
     final_best_rules_list.sort(key=lambda x: x[1], reverse=True)
-
     return final_best_rules_list
 
-# --- Utility Functions ---
 
+# --- Utility Functions (Unchanged) ---
 def analyze_cumulative_value(sorted_data: List[Tuple[str, int]], total_lines: int):
     """Performs Pareto analysis and prints suggestions for MAX_COUNT filtering."""
     total_value = sum(count for _, count in sorted_data)
     cumulative_count = 0
-    
     milestones: List[Tuple[int, int]] = []
     target_percentages = [50, 80, 90, 95] 
     next_target = 0
@@ -249,13 +327,10 @@ def analyze_cumulative_value(sorted_data: List[Tuple[str, int]], total_lines: in
     for i, (_, count) in enumerate(sorted_data):
         cumulative_count += count
         current_percentage = (cumulative_count / total_value) * 100
-        
         if next_target < len(target_percentages) and current_percentage >= target_percentages[next_target]:
             milestones.append((target_percentages[next_target], i + 1))
             next_target += 1
-            
-        if next_target >= len(target_percentages):
-            break
+        if next_target >= len(target_percentages): break
             
     print("\n" + "#"*60)
     print("CUMULATIVE VALUE ANALYSIS (PARETO) - SUGGESTED CUTOFF LIMITS")
@@ -265,14 +340,12 @@ def analyze_cumulative_value(sorted_data: List[Tuple[str, int]], total_lines: in
 
     for target, rules_needed in milestones:
         rules_percentage = (rules_needed / len(sorted_data)) * 100
-        
         print(f"[{target}% OF VALUE]: Reached with {rules_needed:,} rules. ({rules_percentage:.2f}% of unique rules)")
     
     print("---")
     if milestones:
         last_milestone_rules = milestones[-1][1]
         print(f"[SUGGESTION] Consider using a limit of: {last_milestone_rules:,} or {int(last_milestone_rules * 1.1):,} for safety.")
-    
     print("#"*60)
     
 def read_file_data(input_filepath: str) -> List[str]:
@@ -280,9 +353,7 @@ def read_file_data(input_filepath: str) -> List[str]:
     if not os.path.exists(input_filepath):
         print(f"Error: Input file '{input_filepath}' does not exist.")
         return []
-    
     print(f"[+] Reading file: {input_filepath}")
-    
     try:
         with open(input_filepath, 'r', encoding='latin-1') as f:
             data = [line.strip() for line in f if line.strip()]
@@ -298,7 +369,6 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
 
     print("\n[DISK MODE] Initiating disk-based processing to conserve RAM...")
     
-    # 1. Write all input data to a single temporary file on disk
     with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_f:
         all_data_temp_file = temp_f.name
         print(f"[DISK] Consolidating all input data into temporary file: {all_data_temp_file}")
@@ -320,8 +390,6 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
         return [], 0
 
     print(f"[DISK] Total lines consolidated: {total_lines:,}")
-    
-    # 2. Count unique occurrences by reading the temporary file
     print("[DISK] Counting and sorting unique rules...")
     occurrence_counts: Counter = Counter()
     try:
@@ -331,10 +399,8 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
     except Exception as e:
         print(f"[-] Error reading from temporary file: {e}")
         
-    # 3. Sort the final counts
     sorted_data_textual: List[Tuple[str, int]] = occurrence_counts.most_common()
 
-    # 4. Clean up the temporary file
     try:
         os.remove(all_data_temp_file)
         print(f"[DISK] Cleaned up temporary file: {all_data_temp_file}")
@@ -343,17 +409,18 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
 
     return sorted_data_textual, total_lines
 
+
 # ==============================================================================
-# C. MAIN PROCESS FUNCTION
+# C. MAIN PROCESS FUNCTION (FIXED SYNTAX ERROR)
 # ==============================================================================
 
-def process_multiple_files(input_files: List[str], use_disk: bool):
+def process_multiple_files(input_files: List[str], use_disk: bool, levenshtein_max_dist: int):
     
     print("\n" + "="*60)
     print(f"STARTING MULTI-FILE PROCESSING (Mode: {'DISK' if use_disk else 'RAM'})")
     print("="*60)
     
-    # --- 1. Reading, Combining, Counting, and Sorting Data ---
+    # 1. Reading, Combining, Counting, and Sorting Data 
     if use_disk:
         sorted_data_textual, total_lines = process_disk_data(input_files)
     else:
@@ -374,7 +441,7 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
     if total_lines == 0:
         return
 
-    # --- 2. Post-processing Stats and Analysis ---
+    # 2. Post-processing Stats and Analysis (Textual)
     unique_count_textual = len(sorted_data_textual)
     sorted_data = sorted_data_textual 
     
@@ -393,11 +460,20 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
     
     analyze_cumulative_value(sorted_data_textual, total_lines)
     
-    # --- 3. User Input for Filtering Mode (Combined Logic) ---
+    # 2.5. LEVENSHTEIN REDUNDANCY FILTER
+    if levenshtein_max_dist > 0:
+        sorted_data = apply_levenshtein_filter(sorted_data_textual, levenshtein_max_dist)
+        unique_count = len(sorted_data)
+        
+        if unique_count != unique_count_textual:
+             print(f"\n[LEVE] Levenshtein filter reduced the set from {unique_count_textual:,} to {unique_count:,} rules.")
+             analyze_cumulative_value(sorted_data, total_lines) 
+
+    unique_count = len(sorted_data)
     
+    # 3. User Input for Filtering Mode
     min_count_threshold: int = 1
-    max_rule_limit: int = unique_count_textual
-    unique_count = unique_count_textual
+    max_rule_limit: int = unique_count
     mode_choice_1 = ''
     mode_choice_2 = ''
 
@@ -412,28 +488,21 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
     
     while True:
         mode_choice_1 = input("Enter mode choice (1, 2, 3, 4, 0/Enter): ").strip()
-        
-        if mode_choice_1 in ['', '0', '1', '2', '3', '4']:
-            break
-        else:
-            print("[-] Invalid choice. Please enter 1, 2, 3, 4, 0, or press Enter.")
+        if mode_choice_1 in ['', '0', '1', '2', '3', '4']: break
+        else: print("[-] Invalid choice. Please enter 1, 2, 3, 4, 0, or press Enter.")
             
     is_inverse_mode = (mode_choice_1 == '4')
     
     # --- LOGIC MINIMIZATION EXECUTION (MODE 3) ---
     if mode_choice_1 == '3':
         print("\n[WARNING] Functional Minimization (Mode 3) is always RAM intensive and uses multiprocessing.")
-        
-        sorted_data_functional = generate_functional_signatures(sorted_data_textual)
-        
+        sorted_data_functional = generate_functional_signatures(sorted_data) 
         sorted_data = sorted_data_functional
         unique_count = len(sorted_data)
         
-        print(f"\n[MINIMIZATION] Logic minimization reduced unique count from {unique_count_textual:,} to {unique_count:,} functional rules.")
-
+        print(f"\n[MINIMIZATION] Logic minimization reduced unique count from {len(sorted_data_textual):,} to {unique_count:,} functional rules.")
         analyze_cumulative_value(sorted_data, total_lines) 
 
-        # Re-enter prompt logic for further statistical pruning
         print("\n" + "-"*60)
         print(f"FUNCTIONAL MINIMIZATION APPLIED. New unique count: {unique_count:,}")
         print("Choose further statistical filtering:")
@@ -445,17 +514,12 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
         
         while True:
             mode_choice_2 = input("Enter mode choice (1, 2, 4, 0/Enter): ").strip()
-            if mode_choice_2 in ['', '0', '1', '2', '4']:
-                break
-            else:
-                print("[-] Invalid choice. Please enter 1, 2, 4, 0, or press Enter.")
+            if mode_choice_2 in ['', '0', '1', '2', '4']: break
+            else: print("[-] Invalid choice. Please enter 1, 2, 4, 0, or press Enter.")
 
-        if mode_choice_2 in ['', '0']:
-            pass
-        elif mode_choice_2 == '1':
-            mode_choice_1 = '1'
-        elif mode_choice_2 == '2':
-            mode_choice_1 = '2'
+        if mode_choice_2 in ['', '0']: pass
+        elif mode_choice_2 == '1': mode_choice_1 = '1'
+        elif mode_choice_2 == '2': mode_choice_1 = '2'
         elif mode_choice_2 == '4':
             mode_choice_1 = '4'
             is_inverse_mode = True 
@@ -470,105 +534,79 @@ def process_multiple_files(input_files: List[str], use_disk: bool):
     if mode_choice_1 == '1':
         max_count = sorted_data[0][1] if sorted_data else 0
         suggested_threshold = max(1, total_lines // 1000)
-        
         while True:
             limit_input = input(f"[MODE 1] Enter the MINIMUM OCCURRENCE count (Max: {max_count:,}, Suggested: {suggested_threshold:,}, Min: 1): ").strip()
-
             try:
                 min_count_threshold = int(limit_input)
                 if min_count_threshold >= 1:
                     max_rule_limit = unique_count
                     print(f"[+] Selected MIN_COUNT threshold: {min_count_threshold:,}.")
                     break
-                else:
-                    print(f"[-] The minimum count must be 1 or higher.")
-            except ValueError:
-                print("[-] Invalid format. Please enter an integer.")
+                else: print(f"[-] The minimum count must be 1 or higher.")
+            except ValueError: print("[-] Invalid format. Please enter an integer.")
 
     elif mode_choice_1 == '2' or mode_choice_1 == '4':
         while True:
             mode_label = "**INVERSE**" if mode_choice_1 == '4' else "MAX_COUNT"
             limit_input = input(f"[{mode_label} MODE] Enter the number of rules to KEEP/SKIP (1 to {unique_count:,}): ").strip()
-
             try:
                 max_rule_limit = int(limit_input)
                 if 1 <= max_rule_limit <= unique_count:
                     min_count_threshold = 1
                     print(f"[+] Selected limit: {max_rule_limit:,}.")
                     break
-                else:
-                    print(f"[-] The number must be between 1 and {unique_count:,}.")
-            except ValueError:
-                print("[-] Invalid format. Please enter an integer.")
+                else: print(f"[-] The number must be between 1 and {unique_count:,}.")
+            except ValueError: print("[-] Invalid format. Please enter an integer.")
 
     # --- 4. Applying the filter based on the chosen mode ---
     data_after_min_count_filter = []
     
-    # 4a. Apply MIN_COUNT filter first
     for item, count in sorted_data:
         if count >= min_count_threshold:
             data_after_min_count_filter.append((item, count))
-        else:
-            break
+        else: break
             
-    # 4b. Apply MAX_COUNT or INVERSE logic
     if is_inverse_mode:
         final_data_to_write = data_after_min_count_filter[max_rule_limit:]
-        
         skipped_count = max_rule_limit
-        initial_unique_count = unique_count
-        
         print(f"\n[INVERSE RESULT] Saved {len(final_data_to_write):,} rules (the 'Leftovers').")
         print(f"[INVERSE RESULT] {skipped_count:,} TOP rules were **intentionally skipped**.")
         
     else:
         final_data_to_write = data_after_min_count_filter[:max_rule_limit]
-        
-        initial_unique_count = unique_count
-        removed_count = initial_unique_count - len(final_data_to_write)
-        
+        removed_count = unique_count - len(final_data_to_write)
         print(f"\n[RESULT] Final number of rules to be saved: {len(final_data_to_write):,}")
+        # LINIA Z BŁĘDEM ZOSTAŁA NAPRAWIONA TUTAJ:
         if removed_count > 0:
-            print(f"[RESULT] {removed_count:,} unique rules were removed from the initial set of {initial_unique_count:,}.")
+            print(f"[RESULT] {removed_count:,} unique rules were removed from the initial set of {unique_count:,}.")
     
-    # --- 5. Saving the data to the new file (MODIFIED SECTION) ---
+    # --- 5. Saving the data to the new file ---
     final_write_count = len(final_data_to_write)
     first_basename = os.path.basename(os.path.splitext(input_files[0])[0])
     
-    # Naming convention logic
-    if mode_choice_1 == '3' and is_inverse_mode:
-        filter_str = f"F_INVERSE_TOP_{max_rule_limit}"
-    elif mode_choice_1 == '3' and mode_choice_2 == '2':
-        filter_str = f"F_TOP_{max_rule_limit}"
-    elif mode_choice_1 == '3' and mode_choice_2 == '1':
-        filter_str = f"F_MIN_{min_count_threshold}"
-    elif is_inverse_mode:
-        filter_str = f"INVERSE_TOP_{max_rule_limit}"
-    elif mode_choice_1 == '2':
-        filter_str = f"TOP_{max_rule_limit}"
-    elif mode_choice_1 == '1':
-        filter_str = f"MIN_{min_count_threshold}"
-    else:
-        # Changed the default naming suffix to 'slimmed'
-        filter_str = "slimmed"
+    filter_parts = []
+    if levenshtein_max_dist > 0: filter_parts.append(f"L{levenshtein_max_dist}")
+    
+    if mode_choice_1 == '3' and is_inverse_mode: filter_parts.append(f"F_INVERSE_TOP_{max_rule_limit}")
+    elif mode_choice_1 == '3' and mode_choice_2 == '2': filter_parts.append(f"F_TOP_{max_rule_limit}")
+    elif mode_choice_1 == '3' and mode_choice_2 == '1': filter_parts.append(f"F_MIN_{min_count_threshold}")
+    elif is_inverse_mode: filter_parts.append(f"INVERSE_TOP_{max_rule_limit}")
+    elif mode_choice_1 == '2': filter_parts.append(f"TOP_{max_rule_limit}")
+    elif mode_choice_1 == '1': filter_parts.append(f"MIN_{min_count_threshold}")
+    elif not filter_parts: filter_parts.append("slimmed")
 
-    # Conditional file path construction
-    if filter_str == "slimmed":
-        output_filepath = f"{first_basename}_{filter_str}.rule"
-    else:
-        output_filepath = f"{first_basename}_CONSOLIDATED_{filter_str}.rule"
+    filter_str = "_".join(filter_parts)
+    
+    output_filepath = f"{first_basename}_CONSOLIDATED_{filter_str}.rule"
+    if filter_str == "slimmed": output_filepath = f"{first_basename}_slimmed.rule"
     
     input_dir = os.path.dirname(input_files[0])
-    if input_dir:
-        output_filepath = os.path.join(input_dir, output_filepath)
+    if input_dir: output_filepath = os.path.join(input_dir, output_filepath)
 
     try:
         with open(output_filepath, 'w', encoding='utf-8') as f:
             print(f"\nSaving filtered consolidated data to: {output_filepath}")
-
-            for item, _ in final_data_to_write:
-                f.write(f"{item}\n")
-
+            for item, _ in final_data_to_write: f.write(f"{item}\n")
             print(f"Successfully saved {final_write_count:,} filtered entries.")
             print("\n" + "="*60)
             print("PROCESSING COMPLETE")
@@ -581,9 +619,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hashcat Rule Processor for statistical and functional filtering.")
     parser.add_argument('input_files', nargs='+', help='Paths to the debug hashcat rule files to process.')
     parser.add_argument('-d', '--use-disk', action='store_true', help='Use disk (temp files) for initial consolidation to save RAM.')
+    parser.add_argument('-ld', '--levenshtein-max-dist', type=int, default=0, 
+                        help='Filters rules based on Levenshtein distance. Rules too close (<= DIST) to a better-ranked rule are removed. 0 = disabled (Default).')
     
     args = parser.parse_args()
     
     print(f"Found {len(args.input_files)} file(s) to process.")
     
-    process_multiple_files(args.input_files, args.use_disk)
+    process_multiple_files(args.input_files, args.use_disk, args.levenshtein_max_dist)
