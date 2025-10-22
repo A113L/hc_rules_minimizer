@@ -48,10 +48,8 @@ Mode 4 executes the opposite of standard filtering:
 **The new flag** *-ld N* or *--levenshtein-max-dist N*
 
 1. N=1	Rules differ by only 1 operation (e.g., insertion, deletion, or substitution).	Conservative. Removes only extremely obvious duplicates and close typos. The final set remains large.
-2. 
-3. N=2	Rules differ by up to 2 operations.	Recommended Compromise. Provides significant size reduction by eliminating near-variants (e.g., T2t vs. T3t or D0 vs. D1).
-4. 
-5. N=3	Rules differ by up to 3 operations.	Aggressive. Useful for massive rule sets (hundreds of thousands) where maximum time-saving is needed. May remove slightly more diverse rules.
+2. N=2	Rules differ by up to 2 operations.	Recommended Compromise. Provides significant size reduction by eliminating near-variants (e.g., T2t vs. T3t or D0 vs. D1).
+3. N=3	Rules differ by up to 3 operations.	Aggressive. Useful for massive rule sets (hundreds of thousands) where maximum time-saving is needed. May remove slightly more diverse rules.
 
 *Value for the User*
 
