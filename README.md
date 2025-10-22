@@ -45,6 +45,14 @@ Mode 4 executes the opposite of standard filtering:
 
 2. The final suggested number (the "MAX_COUNT") is what you would use in Mode 2 to build your efficient, first-phase attack file.
 
+**The new flag** *-ld N* or *--levenshtein-max-dist N*
+
+1. N=1	Rules differ by only 1 operation (e.g., insertion, deletion, or substitution).	Conservative. Removes only extremely obvious duplicates and close typos. The final set remains large.
+2. 
+3. N=2	Rules differ by up to 2 operations.	Recommended Compromise. Provides significant size reduction by eliminating near-variants (e.g., T2t vs. T3t or D0 vs. D1).
+4. 
+5. N=3	Rules differ by up to 3 operations.	Aggressive. Useful for massive rule sets (hundreds of thousands) where maximum time-saving is needed. May remove slightly more diverse rules.
+
 *Value for the User*
 
 This tool transforms large, chaotic rule sets into compact, highly effective, and optimized files that are faster to load and more efficient in attacks on large, modern GPU-based platforms. This capability enables the creation of professional, custom rules that surpass publicly available sets in terms of performance and precision.
