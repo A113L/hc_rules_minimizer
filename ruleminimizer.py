@@ -7,13 +7,14 @@ Features:
 - Optional disk usage for initial consolidation of huge files (--use-disk).
 - Statistical Cutoff (Mode 2) and Inverse Mode (Mode 4) for dual-phase attacks.
 - Pareto Analysis (Cumulative Value) for suggesting cutoff limits.
-- NEW: Levenshtein Distance Filtering for Semantic Redundancy Removal, optimized with NumPy (optional).
+- Levenshtein Distance Filtering for Semantic Redundancy Removal, optimized with NumPy (optional).
+- NEW: Option to output results to STDOUT for piping (-o / --output-stdout).
 '''
 import sys
 import os
 import re
 from collections import Counter
-from typing import List, Tuple, Dict, Callable
+from typing import List, Tuple, Dict, Callable, Any
 import argparse
 import tempfile
 import multiprocessing
@@ -37,7 +38,7 @@ def i36(string):
     '''Shorter way of converting base 36 string to integer'''
     return int(string, 36)
 
-# --- FUNCTS DICTIONARY --- (Content remains unchanged)
+# --- FUNCTS DICTIONARY ---
 FUNCTS: Dict[str, Callable] = {}
 FUNCTS[':'] = lambda x, i: x
 FUNCTS['l'] = lambda x, i: x.lower()
@@ -70,6 +71,7 @@ def D(x, i):
 FUNCTS['D'] = D
 
 def x(x, i):
+    # Hashcat x functions takes two arguments (start, end)
     start = i36(i[0])
     end = i36(i[1])
     if start < 0 or end < 0 or start > len(x) or end > len(x) or start > end: return "" 
@@ -77,6 +79,7 @@ def x(x, i):
 FUNCTS['x'] = x
 
 def O(x, i):
+    # Hashcat O functions takes two arguments (start, end)
     start = i36(i[0])
     end = i36(i[1])
     if start < 0 or end < 0 or start > len(x) or end > len(x): return x
@@ -85,6 +88,7 @@ def O(x, i):
 FUNCTS['O'] = O
 
 def i(x, i):
+    # Hashcat i functions takes two arguments (pos, char)
     pos = i36(i[0])
     char = i[1]
     if pos > len(x): pos = len(x)
@@ -92,6 +96,7 @@ def i(x, i):
 FUNCTS['i'] = i
 
 def o(x, i):
+    # Hashcat o functions takes two arguments (pos, char)
     pos = i36(i[0])
     char = i[1]
     if pos >= len(x): return x
@@ -121,13 +126,15 @@ def extract_memory(string, args):
     '''Insert section of stored string into current string'''
     if not __memorized__[0]: return string
     try:
+        # Note: Your implementation of X uses three arguments, matching hashcat's memory extraction
         pos, length, i = map(i36, args)
-        string = list(string)
+        string_list = list(string)
         mem_segment = __memorized__[0][pos:pos+length]
-        string.insert(i, mem_segment)
-        return ''.join(string)
+        string_list.insert(i, mem_segment)
+        return ''.join(string_list)
     except Exception:
-        return ''.join(string)
+        # Fallback to original string if arguments fail
+        return string 
 FUNCTS['X'] = extract_memory
 FUNCTS['4'] = lambda x, i: x+__memorized__[0]
 FUNCTS['6'] = lambda x, i: __memorized__[0]+x
@@ -147,9 +154,10 @@ def rule_regex_gen():
         r'o\w.', r"'\w", 's..', '@.', r'z\w', r'Z\w', 'q',
         r'X\w\w\w', '4', '6', 'M'
         ]
+    # Build regex, escaping the first character but using raw regex for the arguments
     for i, func in enumerate(__rules__):
-        __rules__[i] = func[0]+func[1:].replace(r'\w', '[a-zA-Z0-9]')
-    ruleregex = '|'.join(['%s%s' % (re.escape(a[0]), a[1:]) for a in __rules__])
+        __rules__[i] = re.escape(func[0]) + func[1:].replace(r'\w', '[a-zA-Z0-9]')
+    ruleregex = '|'.join(__rules__)
     return re.compile(ruleregex)
 __ruleregex__ = rule_regex_gen()
 
@@ -157,20 +165,29 @@ __ruleregex__ = rule_regex_gen()
 class RuleEngine(object):
     ''' Simplified Rule Engine for functional simulation '''
     def __init__(self, rules: List[str]):
+        # Parse all rule strings into a list of lists of function strings
         self.rules = tuple(map(__ruleregex__.findall, rules))
 
     def apply(self, string: str) -> str:
-        ''' Apply all rules to a single string and return the result '''
-        for rule_functions in self.rules:
+        ''' 
+        Apply all functions in the rule string to a single string and return the result.
+        
+        CRITICAL FIX: The 'return word' statement was moved outside the inner loop 
+        to ensure all functions in a single rule are executed before returning.
+        '''
+        for rule_functions in self.rules: # self.rules contains one parsed rule (list of functions)
             word = string
             __memorized__[0] = ''
             
-            for function in rule_functions:
+            for function in rule_functions: # Iterate over functions in the rule
                 try:
                     word = FUNCTS[function[0]](word, function[1:])
                 except Exception:
                     pass
+            
+            # This returns the result after ALL functions in the rule have been applied.
             return word 
+        
         return string
 
 # ==============================================================================
@@ -222,9 +239,9 @@ else: # Pure Python Fallback
                 cost = 0 if c1 == c2 else 1
                 
                 new_distances.append(min((distances[i1 + 1] + 1, 
-                                         new_distances[-1] + 1, 
-                                         distances[i1] + cost)))
-                                         
+                                          new_distances[-1] + 1, 
+                                          distances[i1] + cost)))
+                                          
             distances = new_distances
         return distances[-1]
 
@@ -232,6 +249,8 @@ else: # Pure Python Fallback
 def apply_levenshtein_filter(rules_data: List[Tuple[str, int]], max_dist: int) -> List[Tuple[str, int]]:
     """
     Filters a list of rules (rule, count) based on Levenshtein distance.
+    The list must be sorted by count (most common first). Only rules too close (<= max_dist) 
+    to an already accepted rule are removed, preserving the most common rule in a semantic group.
     """
     if max_dist <= 0:
         return rules_data 
@@ -243,6 +262,8 @@ def apply_levenshtein_filter(rules_data: List[Tuple[str, int]], max_dist: int) -
     
     total_rejected = 0
 
+    # This loop MUST be sequential as the acceptance of rule 'A' dictates 
+    # whether subsequent rules 'B', 'C', etc., are redundant.
     for rule, count in tqdm(rules_data, desc="Levenshtein filtering"):
         is_redundant = False
         
@@ -259,7 +280,7 @@ def apply_levenshtein_filter(rules_data: List[Tuple[str, int]], max_dist: int) -
     print(f"[FILTER] Rules rejected by Levenshtein filter: {total_rejected:,}. Final rules: {len(final_rules):,}.")
     return final_rules
 
-# --- Rule Engine Worker and Signature Generation (Unchanged) ---
+# --- Rule Engine Worker and Signature Generation ---
 TEST_VECTOR = [
     "Password", "123456", "ADMIN", "1aB", "QWERTY", 
     "longword", "spec!", "!spec", "a", "b", "c", "0123", 
@@ -269,6 +290,7 @@ TEST_VECTOR = [
 def worker_generate_signature(rule_data: Tuple[str, int]) -> Tuple[str, Tuple[str, int]]:
     """Worker function for multiprocessing pool."""
     rule_text, count = rule_data
+    # Re-initialize RuleEngine for each rule
     engine = RuleEngine([rule_text])
     signature_parts: List[str] = []
     
@@ -306,8 +328,10 @@ def generate_functional_signatures(unique_rules_with_counts: List[Tuple[str, int
     final_best_rules_list: List[Tuple[str, int]] = []
     
     for signature, rules_list in signature_map.items():
+        # Sort by count (highest first) to pick the most common rule as the representative
         rules_list.sort(key=lambda x: x[1], reverse=True)
         best_rule_text, _ = rules_list[0]
+        # Sum all counts to get the total functional value
         total_count = sum(count for _, count in rules_list)
         final_best_rules_list.append((best_rule_text, total_count))
         
@@ -315,9 +339,13 @@ def generate_functional_signatures(unique_rules_with_counts: List[Tuple[str, int
     return final_best_rules_list
 
 
-# --- Utility Functions (Unchanged) ---
+# --- Utility Functions ---
 def analyze_cumulative_value(sorted_data: List[Tuple[str, int]], total_lines: int):
     """Performs Pareto analysis and prints suggestions for MAX_COUNT filtering."""
+    if not sorted_data:
+        print("[ANALYZE] No data to analyze.")
+        return
+        
     total_value = sum(count for _, count in sorted_data)
     cumulative_count = 0
     milestones: List[Tuple[int, int]] = []
@@ -355,8 +383,9 @@ def read_file_data(input_filepath: str) -> List[str]:
         return []
     print(f"[+] Reading file: {input_filepath}")
     try:
-        with open(input_filepath, 'r', encoding='latin-1') as f:
-            data = [line.strip() for line in f if line.strip()]
+        # Use 'ignore' for error handling if the file contains bad bytes
+        with open(input_filepath, 'r', encoding='latin-1', errors='ignore') as f:
+            data = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
             return data
     except IOError as e:
         print(f"[-] File read error for {input_filepath}: {e}")
@@ -375,10 +404,11 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
         
         for input_file in input_files:
             try:
-                with open(input_file, 'r', encoding='latin-1') as f:
+                with open(input_file, 'r', encoding='latin-1', errors='ignore') as f:
                     for line in f:
                         stripped_line = line.strip()
-                        if stripped_line:
+                        # Skip comments and empty lines
+                        if stripped_line and not stripped_line.startswith('#'):
                             temp_f.write(stripped_line + '\n')
                             total_lines += 1
             except IOError as e:
@@ -392,8 +422,11 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
     print(f"[DISK] Total lines consolidated: {total_lines:,}")
     print("[DISK] Counting and sorting unique rules...")
     occurrence_counts: Counter = Counter()
+    
+    # We need to re-open the file for reading and counting
     try:
         with open(all_data_temp_file, 'r', encoding='utf-8') as f:
+            # Note: total=total_lines might not be accurate for tqdm if lines were filtered
             for line in tqdm(f, total=total_lines, desc="Counting rules"):
                 occurrence_counts[line.strip()] += 1
     except Exception as e:
@@ -411,17 +444,20 @@ def process_disk_data(input_files: List[str]) -> Tuple[List[Tuple[str, int]], in
 
 
 # ==============================================================================
-# C. MAIN PROCESS FUNCTION (FIXED SYNTAX ERROR)
+# C. MAIN PROCESS FUNCTION 
 # ==============================================================================
 
-def process_multiple_files(input_files: List[str], use_disk: bool, levenshtein_max_dist: int):
+def process_multiple_files(args: argparse.Namespace):
     
     print("\n" + "="*60)
-    print(f"STARTING MULTI-FILE PROCESSING (Mode: {'DISK' if use_disk else 'RAM'})")
+    print(f"STARTING MULTI-FILE PROCESSING (Mode: {'DISK' if args.use_disk else 'RAM'})")
+    print(f"Levenshtein Filter Max Dist: {args.levenshtein_max_dist}")
     print("="*60)
     
+    input_files = args.input_files
+    
     # 1. Reading, Combining, Counting, and Sorting Data 
-    if use_disk:
+    if args.use_disk:
         sorted_data_textual, total_lines = process_disk_data(input_files)
     else:
         all_data: List[str] = []
@@ -461,13 +497,13 @@ def process_multiple_files(input_files: List[str], use_disk: bool, levenshtein_m
     analyze_cumulative_value(sorted_data_textual, total_lines)
     
     # 2.5. LEVENSHTEIN REDUNDANCY FILTER
-    if levenshtein_max_dist > 0:
-        sorted_data = apply_levenshtein_filter(sorted_data_textual, levenshtein_max_dist)
+    if args.levenshtein_max_dist > 0:
+        sorted_data = apply_levenshtein_filter(sorted_data_textual, args.levenshtein_max_dist)
         unique_count = len(sorted_data)
         
         if unique_count != unique_count_textual:
-             print(f"\n[LEVE] Levenshtein filter reduced the set from {unique_count_textual:,} to {unique_count:,} rules.")
-             analyze_cumulative_value(sorted_data, total_lines) 
+              print(f"\n[LEVE] Levenshtein filter reduced the set from {unique_count_textual:,} to {unique_count:,} rules.")
+              analyze_cumulative_value(sorted_data, total_lines) 
 
     unique_count = len(sorted_data)
     
@@ -576,17 +612,30 @@ def process_multiple_files(input_files: List[str], use_disk: bool, levenshtein_m
         final_data_to_write = data_after_min_count_filter[:max_rule_limit]
         removed_count = unique_count - len(final_data_to_write)
         print(f"\n[RESULT] Final number of rules to be saved: {len(final_data_to_write):,}")
-        # LINIA Z BŁĘDEM ZOSTAŁA NAPRAWIONA TUTAJ:
         if removed_count > 0:
             print(f"[RESULT] {removed_count:,} unique rules were removed from the initial set of {unique_count:,}.")
     
-    # --- 5. Saving the data to the new file ---
+    # --- 5. Saving the data to the new file or STDOUT ---
     final_write_count = len(final_data_to_write)
+    
+    if args.output_stdout:
+        print("\nSaving filtered consolidated data to: STDOUT", file=sys.stderr)
+        for item, _ in final_data_to_write:
+            sys.stdout.write(f"{item}\n")
+        print(f"Successfully wrote {final_write_count:,} filtered entries to STDOUT.", file=sys.stderr)
+        print("\n" + "="*60, file=sys.stderr)
+        print("PROCESSING COMPLETE", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        return
+
+
+    # --- File Saving Logic ---
     first_basename = os.path.basename(os.path.splitext(input_files[0])[0])
     
     filter_parts = []
-    if levenshtein_max_dist > 0: filter_parts.append(f"L{levenshtein_max_dist}")
+    if args.levenshtein_max_dist > 0: filter_parts.append(f"L{args.levenshtein_max_dist}")
     
+    # Naming logic is preserved
     if mode_choice_1 == '3' and is_inverse_mode: filter_parts.append(f"F_INVERSE_TOP_{max_rule_limit}")
     elif mode_choice_1 == '3' and mode_choice_2 == '2': filter_parts.append(f"F_TOP_{max_rule_limit}")
     elif mode_choice_1 == '3' and mode_choice_2 == '1': filter_parts.append(f"F_MIN_{min_count_threshold}")
@@ -616,13 +665,19 @@ def process_multiple_files(input_files: List[str], use_disk: bool, levenshtein_m
         print(f"File write error: {e}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hashcat Rule Processor for statistical and functional filtering.")
+    parser = argparse.ArgumentParser(
+        description=__doc__, # Use the script's docstring for description
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('input_files', nargs='+', help='Paths to the debug hashcat rule files to process.')
     parser.add_argument('-d', '--use-disk', action='store_true', help='Use disk (temp files) for initial consolidation to save RAM.')
     parser.add_argument('-ld', '--levenshtein-max-dist', type=int, default=0, 
                         help='Filters rules based on Levenshtein distance. Rules too close (<= DIST) to a better-ranked rule are removed. 0 = disabled (Default).')
+    parser.add_argument('-o', '--output-stdout', action='store_true', 
+                        help='Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR, eg. 'python ruleminimizer.py rules/*.rule --output-stdout | head -n 1000 > top_rules.rule)
     
     args = parser.parse_args()
+    process_multiple_files(args)
     
     print(f"Found {len(args.input_files)} file(s) to process.")
     
