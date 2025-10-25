@@ -1,4 +1,5 @@
 **Hashcat Rule Consolidation and Minimization Tool**
+[![minimizer.png](https://i.postimg.cc/mgd0bFxH/minimizer.png)](https://postimg.cc/HrySznkY)
 
 This Python tool is designed for optimizing and minimizing large sets of Hashcat rules generated in --debug-mode=1. Its primary goal is the drastic reduction of redundancy within rule files while maintaining or improving the crack rate metric (CR/s).
 
