@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rule Minimizer Script Workflow</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #0d1117; /* Dark GitHub-like background */
+            color: #c9d1d9; /* Light gray text */
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        h1, h2, h3 {
+            font-family: 'Space Mono', monospace;
+            color: #58a6ff; /* GitHub blue for headings */
+        }
+        .section-card {
+            background-color: #161b22; /* Slightly lighter dark background for cards */
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            border: 1px solid #30363d; /* Subtle border */
+        }
+        .flow-node {
+            background-color: #21262d; /* Darker node background */
+            color: #c9d1d9;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.375rem;
+            text-align: center;
+            font-weight: 700;
+            border: 1px solid #30363d;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.9rem;
+        }
+        .flow-arrow-right {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #58a6ff;
+            font-size: 2rem;
+            font-weight: 900;
+            margin: 0 0.5rem;
+        }
+        .flow-arrow-down {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #58a6ff;
+            font-size: 2rem;
+            font-weight: 900;
+            margin: 0.5rem 0;
+        }
+        .highlight-text {
+            color: #3fb950; /* Green for success/highlight */
+            font-weight: bold;
+        }
+        .warning-text {
+            color: #e3b341; /* Yellow for warnings */
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container py-8">
+        <header class="text-center mb-12">
+            <h1 class="text-5xl font-black mb-4">Rule Minimizer Script Workflow</h1>
+            <p class="text-xl text-gray-400">Deep Dive into `ruleminimizer.py` v1.0</p>
+            <p class="text-lg text-gray-500 mt-2 max-w-2xl mx-auto">Optimize Hashcat rule sets with advanced filtering, functional minimization, and statistical analysis.</p>
+        </header>
+
+        <!-- Phase 1: Input & Initial Consolidation --><section class="section-card">
+            <h2 class="text-3xl font-bold mb-6 text-white">Phase 1: Input & Initial Consolidation</h2>
+            <p class="text-gray-400 mb-6">The script starts by ingesting multiple rule files. It can operate in RAM for smaller sets or use a temporary disk file for large datasets to conserve memory.</p>
+            
+            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+                <div class="flow-node">Input Files (*.rule, *.txt)</div>
+                <div class="flow-arrow-right">→</div>
+                <div class="flow-node highlight-text">Parallel Read & Clean</div>
+                <div class="flow-arrow-right">→</div>
+                <div class="flow-node">
+                    <span class="warning-text">If --use-disk:</span><br>
+                    Temp File Consolidation
+                </div>
+                <div class="flow-arrow-right">→</div>
+                <div class="flow-node">In-Memory Rules (Rule, Count)</div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-white">Consolidation Statistics</h3>
+                <p class="text-gray-400 mb-4">Initial processing identifies and counts all unique rules, filtering out comments and empty lines.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-gray-800 p-4 rounded-lg">
+                        <p class="text-gray-300">Total Lines Read:</p>
+                        <p class="text-2xl font-bold highlight-text" id="totalLines">1,000,000</p>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-lg">
+                        <p class="text-gray-300">Textually Unique Rules:</p>
+                        <p class="text-2xl font-bold highlight-text" id="uniqueRules">350,000</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 2: Levenshtein Redundancy Filtering (Optional) --><section class="section-card">
+            <h2 class="text-3xl font-bold mb-6 text-white">Phase 2: Levenshtein Redundancy Filtering <span class="text-lg text-gray-500">(Optional: --levenshtein-max-dist)</span></h2>
+            <p class="text-gray-400 mb-6">Reduces "semantic" duplicates by removing rules that are too similar to a more frequent rule based on Levenshtein distance. This is applied before functional minimization.</p>
+            
+            <div class="flex flex-col items-center justify-center space-y-4">
+                <div class="flow-node">Sorted Unique Rules (Textual)</div>
+                <div class="flow-arrow-down">↓</div>
+                <div class="flow-node highlight-text">Levenshtein Filter (Max Dist)</div>
+                <div class="flow-arrow-down">↓</div>
+                <div class="flow-node">Semantically Unique Rules</div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-white">Levenshtein Filter Impact</h3>
+                <p class="text-gray-400 mb-4">Shows the reduction in rules after applying the Levenshtein filter.</p>
+                <div class="chart-container">
+                    <canvas id="levenshteinChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 3: Rule Filtering & Minimization Modes --><section class="section-card">
+            <h2 class="text-3xl font-bold mb-6 text-white">Phase 3: Rule Filtering & Minimization Modes</h2>
+            <p class="text-gray-400 mb-6">The core of the script offers multiple filtering modes, including a powerful functional minimization using a Hashcat RuleEngine simulator.</p>
+            
+            <div class="flex flex-col items-center justify-center mb-8">
+                <div class="flow-node">Semantically Unique Rules</div>
+                <div class="flow-arrow-down">↓</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+                    <div class="flow-node bg-blue-700 text-white">Mode 1: Min Occurrence</div>
+                    <div class="flow-node bg-blue-700 text-white">Mode 2: Max Rules (Top N)</div>
+                    <div class="flow-node bg-blue-700 text-white">Mode 4: Inverse (Bottom N)</div>
+                </div>
+                <div class="flow-arrow-down">↓</div>
+                <div class="flow-node highlight-text" style="background-color: #3fb950; color: #0d1117;">Mode 3: Functional Minimization <br>(Hashcat RuleEngine Sim + Multiprocessing)</div>
+                <div class="flow-arrow-down">↓</div>
+                <div class="flow-node">Functionally Unique Rules</div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-white">Functional Minimization & Pareto Analysis</h3>
+                <p class="text-gray-400 mb-4">Functional minimization reduces rules based on their actual effect on a test vector. Pareto analysis helps identify optimal cutoff points.</p>
+                <div class="chart-container">
+                    <canvas id="paretoChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 4: Output --><section class="section-card">
+            <h2 class="text-3xl font-bold mb-6 text-white">Phase 4: Output</h2>
+            <p class="text-gray-400 mb-6">The final filtered rule set is saved to a file or piped to STDOUT, with clear naming conventions.</p>
+            
+            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+                <div class="flow-node">Filtered Rules</div>
+                <div class="flow-arrow-right">→</div>
+                <div class="flow-node highlight-text">Generate Output Filename</div>
+                <div class="flow-arrow-right">→</div>
+                <div class="flex flex-col items-center space-y-2">
+                    <div class="flow-node bg-purple-700 text-white">Output to File (.rule)</div>
+                    <div class="text-lg text-gray-500">OR</div>
+                    <div class="flow-node bg-purple-700 text-white">Pipe to STDOUT (--output-stdout)</div>
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-white">Output Metrics</h3>
+                <p class="text-gray-400 mb-4">Final count of rules ready for deployment.</p>
+                <div class="bg-gray-800 p-4 rounded-lg text-center">
+                    <p class="text-gray-300">Final Rules Exported:</p>
+                    <p class="text-3xl font-bold highlight-text" id="finalRules">120,000</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-center text-gray-500 mt-12 mb-4">
+            <p>&copy; 2024 Rule Minimizer Script. Infographic created with Tailwind CSS & Chart.js.</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Placeholder data for dynamic updates
+            const initialUnique = 350000;
+            const levenshteinFiltered = 250000;
+            const functionalFiltered = 120000;
+            const totalValue = 10000000; // Simulated total cumulative value (sum of counts)
+            const uniqueRulesCount = 350000; // Total unique rules for Pareto calculation
+
+            document.getElementById('totalLines').textContent = '1,000,000';
+            document.getElementById('uniqueRules').textContent = initialUnique.toLocaleString();
+            document.getElementById('finalRules').textContent = functionalFiltered.toLocaleString();
+
+            // Levenshtein Chart
+            const levenshteinCtx = document.getElementById('levenshteinChart').getContext('2d');
+            new Chart(levenshteinCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Initial Unique', 'After Levenshtein Filter'],
+                    datasets: [{
+                        label: 'Number of Rules',
+                        data: [initialUnique, levenshteinFiltered],
+                        backgroundColor: ['#58a6ff', '#3fb950'],
+                        borderColor: '#30363d',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Rule Reduction by Levenshtein Filtering',
+                            color: '#c9d1d9'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#c9d1d9' },
+                            grid: { color: '#30363d' }
+                        },
+                        y: {
+                            ticks: { color: '#c9d1d9' },
+                            grid: { color: '#30363d' },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Pareto Chart
+            const paretoCtx = document.getElementById('paretoChart').getContext('2d');
+            // Simulate Pareto data: 80% of value in 20% of rules
+            const paretoData = [];
+            const cumulativeValue = [];
+            let currentCumulative = 0;
+            for (let i = 0; i < uniqueRulesCount; i++) {
+                const value = Math.floor(Math.random() * (100 - 1) + 1); // Simulate rule counts
+                currentCumulative += value;
+                cumulativeValue.push(currentCumulative);
+            }
+            
+            // Normalize cumulative value to totalValue (e.g., 10 million)
+            const maxCumulative = cumulativeValue[cumulativeValue.length - 1];
+            const normalizedCumulative = cumulativeValue.map(val => (val / maxCumulative) * totalValue);
+
+            const labels = Array.from({length: Math.min(uniqueRulesCount, 20)}, (_, i) => `Rule ${i + 1}`); // Show top 20
+            const displayCumulative = normalizedCumulative.slice(0, 20); // Top 20 cumulative values
+
+            new Chart(paretoCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cumulative Value',
+                        data: displayCumulative,
+                        borderColor: '#3fb950',
+                        backgroundColor: 'rgba(63, 185, 80, 0.2)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Cumulative Value Distribution (Top Rules)',
+                            color: '#c9d1d9'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#c9d1d9' },
+                            grid: { color: '#30363d' }
+                        },
+                        y: {
+                            ticks: { color: '#c9d1d9' },
+                            grid: { color: '#30363d' },
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Total Occurrences',
+                                color: '#c9d1d9'
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
