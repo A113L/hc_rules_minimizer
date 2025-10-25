@@ -55,6 +55,29 @@ Mode 4 executes the opposite of standard filtering:
 
 This tool transforms large, chaotic rule sets into compact, highly effective, and optimized files that are faster to load and more efficient in attacks on large, modern GPU-based platforms. This capability enables the creation of professional, custom rules that surpass publicly available sets in terms of performance and precision.
 
+```usage: ruleminimizer.py [-h] [-d] [-ld LEVENSHTEIN_MAX_DIST] [-o] input_files [input_files ...]
+
+The script is used to process debugged hashcat rules from files.
+Features:
+- Full Hashcat Rule Engine simulation for Functional Minimization (Mode 3).
+- Multiprocessing (tqdm) for fast Functional Minimization.
+- Optional disk usage for initial consolidation of huge files (--use-disk).
+- Statistical Cutoff (Mode 2) and Inverse Mode (Mode 4) for dual-phase attacks.
+- Pareto Analysis (Cumulative Value) for suggesting cutoff limits.
+- Levenshtein Distance Filtering for Semantic Redundancy Removal, optimized with NumPy (optional).
+- NEW: Option to output results to STDOUT for piping (-o / --output-stdout).
+
+positional arguments:
+  input_files           Paths to the debug hashcat rule files to process.
+
+options:
+  -h, --help            show this help message and exit
+  -d, --use-disk        Use disk (temp files) for initial consolidation to save RAM.
+  -ld LEVENSHTEIN_MAX_DIST, --levenshtein-max-dist LEVENSHTEIN_MAX_DIST
+                        Filters rules based on Levenshtein distance. Rules too close (<= DIST) to a better-ranked rule are removed. 0 = disabled (Default).
+  -o, --output-stdout   Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR, (e.g., python ruleminimizer.py rules/*.rule --output-stdout | head -n 1000 > top_rules.rule)
+```
+
 **Credits**
 
 https://github.com/mkb2091/PyRuleEngine
