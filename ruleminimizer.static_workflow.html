@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rule Minimizer Script Workflow</title>
+    <!-- Load Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Chart.js for data visualization -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,23 +28,28 @@
         }
         .section-card {
             background-color: #161b22; /* Slightly lighter dark background for cards */
-            border-radius: 0.5rem;
+            border-radius: 0.75rem; /* Increased rounding */
             padding: 1.5rem;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 10px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
             border: 1px solid #30363d; /* Subtle border */
         }
         .flow-node {
             background-color: #21262d; /* Darker node background */
             color: #c9d1d9;
             padding: 0.75rem 1.25rem;
-            border-radius: 0.375rem;
+            border-radius: 0.5rem; /* Rounded corners for nodes */
             text-align: center;
             font-weight: 700;
             border: 1px solid #30363d;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             font-family: 'Space Mono', monospace;
             font-size: 0.9rem;
+            transition: transform 0.2s;
+        }
+        .flow-node:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
         }
         .flow-arrow-right {
             display: flex;
@@ -81,24 +88,27 @@
     <div class="container py-8">
         <header class="text-center mb-12">
             <h1 class="text-5xl font-black mb-4">Rule Minimizer Script Workflow</h1>
-            <p class="text-xl text-gray-400">Deep Dive into `ruleminimizer.py` v1.0</p>
+            <p class="text-xl text-gray-400">Deep Dive into `ruleminimizer.py` v1.4.1</p>
             <p class="text-lg text-gray-500 mt-2 max-w-2xl mx-auto">Optimize Hashcat rule sets with advanced filtering, functional minimization, and statistical analysis.</p>
         </header>
 
-        <!-- Phase 1: Input & Initial Consolidation --><section class="section-card">
+        <!-- Phase 1: Input & Initial Consolidation -->
+        <section class="section-card">
             <h2 class="text-3xl font-bold mb-6 text-white">Phase 1: Input & Initial Consolidation</h2>
             <p class="text-gray-400 mb-6">The script starts by ingesting multiple rule files. It can operate in RAM for smaller sets or use a temporary disk file for large datasets to conserve memory.</p>
             
-            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8 text-sm">
                 <div class="flow-node">Input Files (*.rule, *.txt)</div>
                 <div class="flow-arrow-right">→</div>
                 <div class="flow-node highlight-text">Parallel Read & Clean</div>
-                <div class="flow-arrow-right">→</div>
+                <div class="flow-arrow-right hidden sm:block">→</div>
+                <div class="flow-arrow-down sm:hidden">↓</div>
                 <div class="flow-node">
                     <span class="warning-text">If --use-disk:</span><br>
                     Temp File Consolidation
                 </div>
-                <div class="flow-arrow-right">→</div>
+                <div class="flow-arrow-right hidden sm:block">→</div>
+                <div class="flow-arrow-down sm:hidden">↓</div>
                 <div class="flow-node">In-Memory Rules (Rule, Count)</div>
             </div>
 
@@ -118,7 +128,10 @@
             </div>
         </section>
 
-        <!-- Phase 2: Levenshtein Redundancy Filtering (Optional) --><section class="section-card">
+        ---
+
+        <!-- Phase 2: Levenshtein Redundancy Filtering (Optional) -->
+        <section class="section-card">
             <h2 class="text-3xl font-bold mb-6 text-white">Phase 2: Levenshtein Redundancy Filtering <span class="text-lg text-gray-500">(Optional: --levenshtein-max-dist)</span></h2>
             <p class="text-gray-400 mb-6">Reduces "semantic" duplicates by removing rules that are too similar to a more frequent rule based on Levenshtein distance. This is applied before functional minimization.</p>
             
@@ -139,20 +152,26 @@
             </div>
         </section>
 
-        <!-- Phase 3: Rule Filtering & Minimization Modes --><section class="section-card">
+        ---
+
+        <!-- Phase 3: Rule Filtering & Minimization Modes -->
+        <section class="section-card">
             <h2 class="text-3xl font-bold mb-6 text-white">Phase 3: Rule Filtering & Minimization Modes</h2>
             <p class="text-gray-400 mb-6">The core of the script offers multiple filtering modes, including a powerful functional minimization using a Hashcat RuleEngine simulator.</p>
             
             <div class="flex flex-col items-center justify-center mb-8">
                 <div class="flow-node">Semantically Unique Rules</div>
                 <div class="flow-arrow-down">↓</div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl p-2 rounded-lg border-2 border-dashed border-blue-700">
                     <div class="flow-node bg-blue-700 text-white">Mode 1: Min Occurrence</div>
                     <div class="flow-node bg-blue-700 text-white">Mode 2: Max Rules (Top N)</div>
                     <div class="flow-node bg-blue-700 text-white">Mode 4: Inverse (Bottom N)</div>
                 </div>
                 <div class="flow-arrow-down">↓</div>
-                <div class="flow-node highlight-text" style="background-color: #3fb950; color: #0d1117;">Mode 3: Functional Minimization <br>(Hashcat RuleEngine Sim + Multiprocessing)</div>
+                <div class="flow-node highlight-text" style="background-color: #3fb950; color: #0d1117;">
+                    <span class="text-lg font-extrabold">Mode 3: Functional Minimization</span> <br>
+                    (Hashcat RuleEngine Sim + Multiprocessing)
+                </div>
                 <div class="flow-arrow-down">↓</div>
                 <div class="flow-node">Functionally Unique Rules</div>
             </div>
@@ -166,11 +185,14 @@
             </div>
         </section>
 
-        <!-- Phase 4: Output --><section class="section-card">
+        ---
+
+        <!-- Phase 4: Output -->
+        <section class="section-card">
             <h2 class="text-3xl font-bold mb-6 text-white">Phase 4: Output</h2>
             <p class="text-gray-400 mb-6">The final filtered rule set is saved to a file or piped to STDOUT, with clear naming conventions.</p>
             
-            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8 text-sm">
                 <div class="flow-node">Filtered Rules</div>
                 <div class="flow-arrow-right">→</div>
                 <div class="flow-node highlight-text">Generate Output Filename</div>
@@ -210,7 +232,7 @@
             document.getElementById('uniqueRules').textContent = initialUnique.toLocaleString();
             document.getElementById('finalRules').textContent = functionalFiltered.toLocaleString();
 
-            // Levenshtein Chart
+            // --- Levenshtein Chart (Bar Chart) ---
             const levenshteinCtx = document.getElementById('levenshteinChart').getContext('2d');
             new Chart(levenshteinCtx, {
                 type: 'bar',
@@ -249,31 +271,38 @@
                 }
             });
 
-            // Pareto Chart
+            // --- Pareto Chart (Cumulative Line Chart) ---
             const paretoCtx = document.getElementById('paretoChart').getContext('2d');
+            
             // Simulate Pareto data: 80% of value in 20% of rules
-            const paretoData = [];
             const cumulativeValue = [];
             let currentCumulative = 0;
             for (let i = 0; i < uniqueRulesCount; i++) {
-                const value = Math.floor(Math.random() * (100 - 1) + 1); // Simulate rule counts
+                // Simulate rule counts, heavily skewed towards the beginning (Pareto principle)
+                const value = i < (uniqueRulesCount * 0.2) ? Math.floor(Math.random() * 1000 + 50) : Math.floor(Math.random() * 50 + 1); 
                 currentCumulative += value;
                 cumulativeValue.push(currentCumulative);
             }
             
-            // Normalize cumulative value to totalValue (e.g., 10 million)
+            // Normalize cumulative value for display
             const maxCumulative = cumulativeValue[cumulativeValue.length - 1];
             const normalizedCumulative = cumulativeValue.map(val => (val / maxCumulative) * totalValue);
 
-            const labels = Array.from({length: Math.min(uniqueRulesCount, 20)}, (_, i) => `Rule ${i + 1}`); // Show top 20
-            const displayCumulative = normalizedCumulative.slice(0, 20); // Top 20 cumulative values
-
+            // Display a reasonable number of points for clarity (e.g., 50 steps)
+            const displayPoints = 50;
+            const labels = Array.from({length: displayPoints}, (_, i) => `${Math.round((i / (displayPoints - 1)) * 100)}% Rules`);
+            const displayCumulative = [];
+            for (let i = 0; i < displayPoints; i++) {
+                const index = Math.round((i / (displayPoints - 1)) * (normalizedCumulative.length - 1));
+                displayCumulative.push(normalizedCumulative[index]);
+            }
+            
             new Chart(paretoCtx, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Cumulative Value',
+                        label: 'Cumulative Rule Value/Effectiveness',
                         data: displayCumulative,
                         borderColor: '#3fb950',
                         backgroundColor: 'rgba(63, 185, 80, 0.2)',
@@ -288,7 +317,7 @@
                         legend: { display: false },
                         title: {
                             display: true,
-                            text: 'Cumulative Value Distribution (Top Rules)',
+                            text: 'Pareto Curve: Cumulative Value Distribution (80/20 principle)',
                             color: '#c9d1d9'
                         }
                     },
@@ -298,12 +327,12 @@
                             grid: { color: '#30363d' }
                         },
                         y: {
-                            ticks: { color: '#c9d1d9' },
+                            ticks: { color: '#c9d1d9', callback: (value) => (value / 1000000) + 'M' },
                             grid: { color: '#30363d' },
                             beginAtZero: true,
                             title: {
                                 display: true,
-                                text: 'Total Occurrences',
+                                text: 'Total Occurrences (Simulated Value)',
                                 color: '#c9d1d9'
                             }
                         }
@@ -314,3 +343,4 @@
     </script>
 </body>
 </html>
+
