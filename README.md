@@ -1,61 +1,102 @@
-**Hashcat Rule Consolidation and Minimization Tool**
+🔬 **ruleminimizer.py: Advanced Hashcat Rule Minimization & Analysis**
 
-This Python tool is designed for optimizing and minimizing large sets of Hashcat rules generated in --debug-mode=1. Its primary goal is the drastic reduction of redundancy within rule files while maintaining or improving the crack rate metric (CR/s).
+ruleminimizer.py is an all-in-one utility for managing massive Hashcat rule files. Unlike simple de-duplication tools, this script employs a full, simulated Hashcat rule engine and advanced statistical methods (including Functional Minimization and Levenshtein Distance filtering) to reduce your rule sets based on logic and statistical value, not just textual uniqueness.
 
-*Key Features and Value*
+It is designed for large-scale operations, offering an optional disk-based consolidation mode (-d) to process multi-gigabyte rule sets that cannot fit entirely into RAM.
 
-1. Textual and Statistical Consolidation
-The tool processes multiple input files simultaneously, eliminating textual duplicates and presenting detailed statistics on the removed redundancy (e.g., over 85% reduction in typical datasets). All unique rules are then sorted in descending order based on their frequency of occurrence in the debug set, a key indicator of their value.
+✨ **Features**
 
-2. Logical Minimization (Functional Redundancy)
-By utilizing a built-in, simplified Hashcat rule simulation engine (RuleEngine), the script can identify rules that, despite different syntax, yield the same final outcome on a defined test vector (e.g., $1 vs. D0 i01 $1). Only one rule (the most frequent/most important) is selected from each group of logically equivalent rules, resulting in further reduction without loss of functionality.
+1. Minimization Modes (Interactive Selection)
 
-3. Flexible Filtering and Statistical Pruning
-The user retains full control over the final minimization by selecting one of three filtering modes:
+**The script provides four primary interactive modes for filtering your consolidated rule set:**
 
-**Mode 1** (MIN_COUNT): Saves only rules (or functional groups) whose occurrence count exceeds a defined threshold (e.g., appeared at least 100 times).
+**Textual Uniqueness**
 
-**Mode 2** (MAX_COUNT / Statistical Pruning): Saves only the Top N rules (or functional groups) from the sorted list (e.g., saves the 50,000 most effective rules).
+- Saves all unique rules after removing comments and duplicates.
+- Basic cleanup and de-duplication.
 
-**Mode 3** (FUNCTIONAL): Applies Logical Minimization first, followed by additional Statistical Pruning.
+**Minimum Occurrence**
 
-**Mode 4** (INVERSE): (The 'Leftovers' mode). It's designed to save the less frequent rules while intentionally skipping the most common and potent ones.
+- Filters rules that appear fewer than a specified $N$ times.
 
-*How Mode 4 Works*
+- Removes statistically insignificant noise.
 
-Mode 4 executes the opposite of standard filtering:
+**Statistical Cutoff (Top N)**
 
-1. User Input: You define a number (N) of top rules to SKIP.
+- Saves only the top $N$ most frequently occurring rules.
+- Creates highly optimized, small rule files for primary attacks.
 
-2. Skipping: The script discards the first N most valuable rules (those with the highest total occurrence count).
+**Functional Minimization**
 
-3. Saving: It writes all rules that follow N to the output file.
+- Uses a Hashcat rule engine simulation on a test vector to group rules that produce the exact same output. It keeps only the most frequent rule from each functional group.
+- Eliminates logic redundancy (e.g., l and u on an all-lowercase word are functionally redundant). RAM Intensive.
 
-*Purpose*
+**Inverse Mode**
 
-1. Its main use is in a two-phase cracking strategy:
+- Saves rules that are below the Top N cutoff limit (the "Leftovers").
+- Creates secondary, targeted rule sets for dual-phase attacks.
 
-2. Phase 1 uses the TOP N rules (from Mode 2) for a quick attack.
+**Advanced Filters & Analysis**
 
-3. Phase 2 uses the Mode 4 (Inverse) rules to perform a slower, more exhaustive attack on the remaining hashes, ensuring no time is wasted re-testing the rules used in Phase 1.
+1. Levenshtein Distance Filtering (-ld): Reduces semantic redundancy. If a less frequent rule is too similar (distance $\le$ N) to an already-kept, higher-frequency rule, it is discarded.
 
-**PARETO - SUGGESTED CUTOFF LIMITS** is performing a Cumulative Value Analysis on your sorted rule data. This analysis identifies the point where a small fraction of the rules accounts for a large percentage of the total rule occurrences (i.e., potential cracked hashes).
+2. Pareto Analysis: After consolidation, the script suggests cutoff limits by showing how many rules are needed to account for 50%, 80%, 90%, and 95% of the total rule occurrences.
 
-1. Suggest Cutoff: The number of rules required to reach the 90% or 95% threshold is provided as the suggested cutoff limit. These limits represent the smallest set of rules that provide the maximum cracking value, aligning with the 80/20 Pareto principle.
+3. Multiprocessing: Uses tqdm and multiprocessing for fast, efficient Functional Minimization (Mode 3).
 
-2. The final suggested number (the "MAX_COUNT") is what you would use in Mode 2 to build your efficient, first-phase attack file.
+4. Disk Mode (-d): Uses temporary disk files for consolidation, allowing you to process large rule sets without consuming excessive RAM.
 
-**The new flag** *-ld N* or *--levenshtein-max-dist N*
+5. STDOUT Output (-o): Enables piping results directly into other command-line tools.
 
-1. N=1	Rules differ by only 1 operation (e.g., insertion, deletion, or substitution).	Conservative. Removes only extremely obvious duplicates and close typos. The final set remains large.
-2. N=2	Rules differ by up to 2 operations.	Recommended Compromise. Provides significant size reduction by eliminating near-variants (e.g., T2t vs. T3t or D0 vs. D1).
-3. N=3	Rules differ by up to 3 operations.	Aggressive. Useful for massive rule sets (hundreds of thousands) where maximum time-saving is needed. May remove slightly more diverse rules.
+🚀 **Usage**
 
-*Value for the User*
+*Prerequisites*
 
-This tool transforms large, chaotic rule sets into compact, highly effective, and optimized files that are faster to load and more efficient in attacks on large, modern GPU-based platforms. This capability enables the creation of professional, custom rules that surpass publicly available sets in terms of performance and precision.
+- Python 3.x
 
-```usage: ruleminimizer.py [-h] [-d] [-ld LEVENSHTEIN_MAX_DIST] [-o] input_files [input_files ...]
+- tqdm: For progress bars (pip install tqdm)
+
+- NumPy (Optional): Highly recommended for faster Levenshtein distance calculations (pip install numpy)
+
+**Basic Execution & Filtering**
+
+The script takes one or more rule files as positional arguments and runs interactively.
+
+*Consolidate and get the top 100,000 unique rules (Mode 2):*
+
+- Run the script and choose '2' at the prompt, then enter '100000'.
+```python3 rules_processor.py ruleset1.rule ruleset2.rule```
+
+
+*Functional Minimization (Mode 3) with Levenshtein Filter:*
+
+This command applies the Levenshtein filter first, then groups the remaining rules by their functional signature, keeping the most frequent rule from each group.
+
+```python3 rules_processor.py giant_debug.rule -ld 2```
+
+*[Interactive Prompts Follow]*
+- At prompt 1: Choose '3' (Functional Minimization).
+- At prompt 2: Choose '2' (Statistical Cutoff) and enter your desired limit (e.g., 50000).
+
+
+*Output to STDOUT (Piping):*
+
+Use the --output-stdout flag to pipe the result directly to another utility for streamlined command-line pipelines.
+
+```python3 rules_processor.py rules/big_file.rule --output-stdout | head -n 50000 > top_50k_functional.rule```
+
+Note: All informational and error messages are printed to STDERR, ensuring only the final rules are sent to STDOUT.
+
+
+*Process Huge Files using Disk Mode:*
+
+If you have insufficient RAM for consolidation, use the -d flag. The initial counting and sorting phase will use a temporary file on disk.
+
+```python3 rules_processor.py rule_dump_1.rule rule_dump_2.rule -d```
+
+```# python3 ruleminimizer.py -h
+[INFO] NumPy found. Using optimized Levenshtein distance calculation.
+usage: ruleminimizer.py [-h] [-d] [-ld LEVENSHTEIN_MAX_DIST] [-o] input_files [input_files ...]
 
 The script is used to process debugged hashcat rules from files.
 Features:
@@ -75,9 +116,7 @@ options:
   -d, --use-disk        Use disk (temp files) for initial consolidation to save RAM.
   -ld LEVENSHTEIN_MAX_DIST, --levenshtein-max-dist LEVENSHTEIN_MAX_DIST
                         Filters rules based on Levenshtein distance. Rules too close (<= DIST) to a better-ranked rule are removed. 0 = disabled (Default).
-  -o, --output-stdout   Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR, (e.g., python ruleminimizer.py rules/*.rule --output-stdout | head -n 1000 > top_rules.rule)
+  -o, --output-stdout   Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR.
 ```
 
-**Credits**
-
-https://github.com/mkb2091/PyRuleEngine
+https://roptimization.pages.dev/ruleminimizer.static_workflow
