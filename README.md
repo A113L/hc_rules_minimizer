@@ -119,4 +119,4 @@ options:
   -o, --output-stdout   Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR.
 ```
 
-https://roptimization.pages.dev/ruleminimizer.static_workflow
+https://hcrulestools.pages.dev/ruleminimizer.static_workflow
