@@ -674,11 +674,8 @@ if __name__ == "__main__":
     parser.add_argument('-ld', '--levenshtein-max-dist', type=int, default=0, 
                         help='Filters rules based on Levenshtein distance. Rules too close (<= DIST) to a better-ranked rule are removed. 0 = disabled (Default).')
     parser.add_argument('-o', '--output-stdout', action='store_true', 
-                        help='Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR, eg. 'python ruleminimizer.py rules/*.rule --output-stdout | head -n 1000 > top_rules.rule)
+                        help='Output the result to standard output (STDOUT) instead of creating a file. Informational messages are sent to STDERR.')
     
     args = parser.parse_args()
     process_multiple_files(args)
-    
-    print(f"Found {len(args.input_files)} file(s) to process.")
-    
-    process_multiple_files(args.input_files, args.use_disk, args.levenshtein_max_dist)
+
