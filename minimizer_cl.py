@@ -894,6 +894,10 @@ class GPURuleCounter:
             occurrence_counts[global_id] = count;
         }
         """).build()
+        
+        # Cache kernel instances to avoid repeated retrieval
+        self.hash_kernel = self.program.count_rules_gpu_simple
+        self.unique_kernel = self.program.count_unique_rules_simple
     
     def count_rules_gpu_ram(self, rules: List[str]) -> List[Tuple[str, int]]:
         """
@@ -937,24 +941,24 @@ class GPURuleCounter:
         try:
             # Try with a conservative local size
             local_size = (min(64, len(rules)),) if len(rules) >= 64 else None
-            self.program.count_rules_gpu_simple(self.queue, global_size, local_size,
-                                              rules_buf, hashes_buf, lengths_buf,
-                                              np.uint32(len(rules)), np.uint32(max_rule_len))
+            self.hash_kernel(self.queue, global_size, local_size,
+                           rules_buf, hashes_buf, lengths_buf,
+                           np.uint32(len(rules)), np.uint32(max_rule_len))
         except cl.LogicError:
             # Fall back to no local size
-            self.program.count_rules_gpu_simple(self.queue, global_size, None,
-                                              rules_buf, hashes_buf, lengths_buf,
-                                              np.uint32(len(rules)), np.uint32(max_rule_len))
+            self.hash_kernel(self.queue, global_size, None,
+                           rules_buf, hashes_buf, lengths_buf,
+                           np.uint32(len(rules)), np.uint32(max_rule_len))
         
         print("[GPU] Executing unique counting kernel...")
         try:
-            self.program.count_unique_rules_simple(self.queue, global_size, local_size,
-                                                 hashes_buf, lengths_buf, unique_buf, counts_buf,
-                                                 np.uint32(len(rules)))
+            self.unique_kernel(self.queue, global_size, local_size,
+                             hashes_buf, lengths_buf, unique_buf, counts_buf,
+                             np.uint32(len(rules)))
         except cl.LogicError:
-            self.program.count_unique_rules_simple(self.queue, global_size, None,
-                                                 hashes_buf, lengths_buf, unique_buf, counts_buf,
-                                                 np.uint32(len(rules)))
+            self.unique_kernel(self.queue, global_size, None,
+                             hashes_buf, lengths_buf, unique_buf, counts_buf,
+                             np.uint32(len(rules)))
         
         # Read results efficiently
         print("[GPU] Reading results...")
@@ -1378,7 +1382,7 @@ def interactive_processing_loop(sorted_data: List[Tuple[str, int]], total_lines:
         print("FILTERING OPTIONS:")
         print(" (1) Filter by MINIMUM OCCURRENCE")
         print(" (2) Filter by MAXIMUM NUMBER OF RULES (Statistical Cutoff - TOP N)")
-        print(" (3) Filter by FUNCTIONAL REDUNDANCY (Logic Minimization) [RAM INTENSIVE]")
+        print(" (3) Filter by FUNCTIONAL REDUNDANCY (Logic Minimization) [RAM INTENSIVE]: rule")
         print(" (4) **INVERSE MODE** - Save rules *BELOW* the MAX_COUNT limit")
         if PYOPENCL_AVAILABLE and not args.no_gpu:
             print(" (5) **HASHCAT CLEANUP** - Validate and clean rules (CPU/GPU compatible)")
