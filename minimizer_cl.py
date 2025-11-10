@@ -14,6 +14,7 @@ Features:
 - NEW: Option to output results to STDOUT for piping (-o / --output-stdout).
 - NEW: Recursive folder search for rule files (max depth 3).
 - NEW: Smart processing selection - CPU for large datasets, GPU for smaller ones.
+- NEW: Memory safety with warnings at 85% RAM+swap usage.
 '''
 import sys
 import os
@@ -26,6 +27,7 @@ import tempfile
 import multiprocessing
 from tqdm import tqdm
 import itertools
+import psutil  # For memory monitoring
 
 # --- OPENCL IMPLEMENTATION CHECK ---
 PYOPENCL_AVAILABLE = False
@@ -48,6 +50,88 @@ try:
 except ImportError:
     if not PYOPENCL_AVAILABLE:
         print("[WARNING] NumPy not found. Falling back to slower pure Python Levenshtein distance calculation.")
+
+# ==============================================================================
+# MEMORY SAFETY FUNCTIONS
+# ==============================================================================
+
+def get_memory_usage():
+    """Get current memory usage statistics."""
+    try:
+        virtual_mem = psutil.virtual_memory()
+        swap_mem = psutil.swap_memory()
+        
+        return {
+            'ram_used': virtual_mem.used,
+            'ram_total': virtual_mem.total,
+            'ram_percent': virtual_mem.percent,
+            'swap_used': swap_mem.used,
+            'swap_total': swap_mem.total,
+            'swap_percent': swap_mem.percent,
+            'total_used': virtual_mem.used + swap_mem.used,
+            'total_available': virtual_mem.total + swap_mem.total,
+            'total_percent': (virtual_mem.used + swap_mem.used) / (virtual_mem.total + swap_mem.total) * 100
+        }
+    except Exception as e:
+        print(f"[WARNING] Could not monitor memory usage: {e}")
+        return None
+
+def format_bytes(bytes_size):
+    """Format bytes to human readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} PB"
+
+def check_memory_safety(threshold_percent=85):
+    """
+    Check if memory usage is below safety threshold.
+    Returns True if safe, False if approaching limits.
+    """
+    mem_info = get_memory_usage()
+    if not mem_info:
+        return True  # Assume safe if we can't monitor
+    
+    total_percent = mem_info['total_percent']
+    
+    if total_percent >= threshold_percent:
+        print(f"⚠️  [MEMORY WARNING] System memory usage at {total_percent:.1f}% (threshold: {threshold_percent}%)")
+        print(f"   RAM: {format_bytes(mem_info['ram_used'])} / {format_bytes(mem_info['ram_total'])} ({mem_info['ram_percent']:.1f}%)")
+        print(f"   Swap: {format_bytes(mem_info['swap_used'])} / {format_bytes(mem_info['swap_total'])} ({mem_info['swap_percent']:.1f}%)")
+        return False
+    return True
+
+def memory_safe_operation(operation_name, threshold_percent=85):
+    """
+    Decorator to check memory safety before running memory-intensive operations.
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            print(f"\n[MEMORY CHECK] Before {operation_name}...")
+            
+            if not check_memory_safety(threshold_percent):
+                print(f"❌ [MEMORY CRITICAL] {operation_name} requires significant memory.")
+                print(f"   Current memory usage exceeds {threshold_percent}% threshold.")
+                
+                response = input(f"Continue with {operation_name} anyway? (y/N): ").strip().lower()
+                if response not in ['y', 'yes']:
+                    print(f"🚫 [ABORTED] {operation_name} cancelled due to memory constraints.")
+                    return None
+            
+            print(f"✅ [MEMORY OK] Starting {operation_name}...")
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+def estimate_memory_usage(rules_count, avg_rule_length=50):
+    """
+    Estimate memory usage for rule processing operations.
+    Returns estimated size in bytes.
+    """
+    # Rough estimation: each rule string + overhead
+    estimated_bytes = rules_count * (avg_rule_length + 50)  # 50 bytes overhead per rule
+    return estimated_bytes
 
 # ==============================================================================
 # A. HASHCAT RULE ENGINE SIMULATION (From the working script)
@@ -632,6 +716,7 @@ def worker_generate_signature(rule_data: Tuple[str, int]) -> Tuple[str, Tuple[st
     signature = '|'.join(signature_parts)
     return signature, (rule_text, count)
 
+@memory_safe_operation("Functional Minimization", 85)
 def functional_minimization(data: List[Tuple[str, int]]) -> List[Tuple[str, int]]:
     """
     Functional minimization using actual hashcat rule engine simulation.
@@ -646,6 +731,11 @@ def functional_minimization(data: List[Tuple[str, int]]) -> List[Tuple[str, int]
     # For very large datasets, warn the user
     if len(data) > 10000:
         print(f"[WARNING] Large dataset detected ({len(data):,} rules).")
+        
+        # Estimate memory usage
+        estimated_mem = estimate_memory_usage(len(data))
+        print(f"[MEMORY] Estimated memory usage: {format_bytes(estimated_mem)}")
+        
         response = input("Continue with functional minimization? (y/N): ").strip().lower()
         if response not in ['y', 'yes']:
             print("[INFO] Skipping functional minimization.")
@@ -1036,6 +1126,7 @@ def count_rules_cpu_chunked(rules: List[str], chunk_size: int = 1000000) -> List
 # H. SMART PROCESSING DISPATCHER
 # ==============================================================================
 
+@memory_safe_operation("Rule Counting", 85)
 def smart_count_rules(rules: List[str], method: str = "AUTO") -> List[Tuple[str, int]]:
     """
     Smart rule counting that chooses the best method based on dataset size and user preference.
@@ -1199,6 +1290,7 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     
     return previous_row[-1]
 
+@memory_safe_operation("Levenshtein Filtering", 85)
 def levenshtein_filter(data: List[Tuple[str, int]], max_distance: int = 2) -> List[Tuple[str, int]]:
     """
     Filter rules based on Levenshtein distance to remove similar rules.
@@ -1469,6 +1561,14 @@ def process_multiple_files(args: argparse.Namespace):
     print(f"Levenshtein Filter Max Dist: {args.levenshtein_max_dist}")
     print("="*60)
     
+    # Check initial memory state
+    print("\n[MEMORY CHECK] Initial system memory status:")
+    mem_info = get_memory_usage()
+    if mem_info:
+        print(f"   RAM: {format_bytes(mem_info['ram_used'])} / {format_bytes(mem_info['ram_total'])} ({mem_info['ram_percent']:.1f}%)")
+        print(f"   Swap: {format_bytes(mem_info['swap_used'])} / {format_bytes(mem_info['swap_total'])} ({mem_info['swap_percent']:.1f}%)")
+        print(f"   Total: {format_bytes(mem_info['total_used'])} / {format_bytes(mem_info['total_available'])} ({mem_info['total_percent']:.1f}%)")
+    
     # Determine processing method
     processing_method = "AUTO"
     if args.no_gpu:
@@ -1539,4 +1639,19 @@ if __name__ == "__main__":
                        help='Disable GPU acceleration for rule counting.')
     
     args = parser.parse_args()
+    
+    # Check if psutil is available for memory monitoring
+    try:
+        import psutil
+    except ImportError:
+        print("[WARNING] psutil not installed. Memory monitoring disabled.")
+        print("Install with: pip install psutil")
+        # Create dummy functions
+        def get_memory_usage(): return None
+        def check_memory_safety(threshold=85): return True
+        def memory_safe_operation(op_name, threshold=85):
+            def decorator(func):
+                return func
+            return decorator
+    
     process_multiple_files(args)
